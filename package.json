@@ -21,7 +21,7 @@
     "axios": "1",
     "buffer": "^6.0.3",
     "date-fns": "2",
-    "ethers": "6",
+    "ethers": "^5.7.2",
     "framer-motion": "6",
     "process": "^0.11.10",
     "react": "^19.0.0",

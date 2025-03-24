@@ -22,11 +22,13 @@ import { useWeb3Auth } from '../../contexts/Web3Context';
 interface InstitutionRegistrationFormProps {
   onSubmit: (data: any) => void;
   isAuthenticated: boolean;
+  isSubmitting: boolean; // Add this prop
 }
 
 const InstitutionRegistrationForm: React.FC<InstitutionRegistrationFormProps> = ({ 
   onSubmit, 
-  isAuthenticated 
+  isAuthenticated,
+  isSubmitting, // Add this prop
 }) => {
   const { login, isLoading } = useWeb3Auth();
   const [formData, setFormData] = useState({
@@ -190,7 +192,8 @@ const InstitutionRegistrationForm: React.FC<InstitutionRegistrationFormProps> = 
             type="submit"
             width="full"
             size="lg"
-            isLoading={isLoading}
+            isLoading={isLoading || isSubmitting} // Update this line
+            loadingText={isAuthenticated ? "Submitting..." : "Connecting..."}
           >
             {isAuthenticated ? 'Complete Registration' : 'Sign In to Continue'}
           </Button>

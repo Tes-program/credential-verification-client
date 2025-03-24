@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/IssueCredential.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Button,
@@ -8,6 +9,8 @@ import {
   FormLabel,
   FormHelperText,
   Input,
+  InputGroup,
+  InputLeftElement,
   Select,
   Textarea,
   VStack,
@@ -16,22 +19,15 @@ import {
   SimpleGrid,
   Flex,
   useColorModeValue,
-  Divider,
   useToast,
   Alert,
   AlertIcon,
   AlertTitle,
   AlertDescription,
   Icon,
-  HStack,
   Badge,
   Switch,
   FormErrorMessage,
-  Tabs,
-  TabList,
-  Tab,
-  TabPanels,
-  TabPanel,
   useSteps,
   Stepper,
   Step,
@@ -44,43 +40,20 @@ import {
   StepSeparator,
   Card,
   CardBody,
+  Spinner,
 } from "@chakra-ui/react";
 import { useNavigate } from "react-router-dom";
 import {
   FaUserGraduate,
   FaCertificate,
   FaCheck,
-  FaExclamationTriangle,
-  FaUniversity,
   FaClipboard,
-  FaCalendarAlt,
-  FaIdCard,
+  FaSearch,
 } from "react-icons/fa";
 import { useWeb3Auth } from "../contexts/Web3Context";
+import { institutionService, credentialService } from "../services/api";
 
-// Mock data for student lookup
-const mockStudents = [
-  {
-    id: "ST001",
-    name: "John Doe",
-    email: "john.doe@example.com",
-    studentId: "202201001",
-  },
-  {
-    id: "ST002",
-    name: "Jane Smith",
-    email: "jane.smith@example.com",
-    studentId: "202201002",
-  },
-  {
-    id: "ST003",
-    name: "Michael Johnson",
-    email: "michael.johnson@example.com",
-    studentId: "202201003",
-  },
-];
-
-// Mock credential types
+// Credential types
 const credentialTypes = [
   "Bachelor of Science",
   "Bachelor of Arts",
@@ -89,6 +62,7 @@ const credentialTypes = [
   "PhD",
   "Certificate",
   "Diploma",
+  "Award",
 ];
 
 // Step definitions for the stepper
@@ -103,10 +77,10 @@ const IssueCredential: React.FC = () => {
   const navigate = useNavigate();
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedStudent, setSelectedStudent] = useState<
-    null | (typeof mockStudents)[0]
-  >(null);
+  const [students, setStudents] = useState<any[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const { activeStep: currentStep, setActiveStep: setStep } = useSteps({
     index: activeStep,
@@ -133,6 +107,39 @@ const IssueCredential: React.FC = () => {
   // Colors
   const cardBg = useColorModeValue("white", "gray.700");
   const borderColor = useColorModeValue("gray.200", "gray.600");
+
+  // Search for students when search term changes
+  useEffect(() => {
+    if (!searchTerm || searchTerm.length < 2) return;
+    
+    const searchStudents = async () => {
+      setIsSearching(true);
+      try {
+        const response = await institutionService.getStudents({ 
+          search: searchTerm,
+          limit: 10
+        });
+        setStudents(response.data.students || []);
+      } catch (error) {
+        console.error("Error searching students:", error);
+        toast({
+          title: "Error",
+          description: "Failed to search for students. Please try again.",
+          status: "error",
+          duration: 3000,
+        });
+      } finally {
+        setIsSearching(false);
+      }
+    };
+    
+    // Debounce search
+    const timeoutId = setTimeout(() => {
+      searchStudents();
+    }, 500);
+    
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm, toast]);
 
   // Handle input changes
   const handleChange = (
@@ -244,18 +251,8 @@ const IssueCredential: React.FC = () => {
     setStep((prev) => prev - 1);
   };
 
-  // Handle student search
-  const filteredStudents = searchTerm
-    ? mockStudents.filter(
-        (student) =>
-          student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          student.studentId.includes(searchTerm) ||
-          student.email.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    : mockStudents;
-
   // Handle student selection
-  const handleSelectStudent = (student: (typeof mockStudents)[0]) => {
+  const handleSelectStudent = (student: any) => {
     setSelectedStudent(student);
 
     // Clear error if it exists
@@ -268,6 +265,18 @@ const IssueCredential: React.FC = () => {
     }
   };
 
+  // Get credential category based on type
+  const getCategoryFromType = (type: string): string => {
+    if (type.includes('Bachelor') || type.includes('Master') || type.includes('PhD')) {
+      return 'Degree';
+    } else if (type.includes('Certificate') || type.includes('Diploma')) {
+      return 'Certificate';
+    } else if (type.includes('Award')) {
+      return 'Award';
+    }
+    return 'Certificate'; // Default
+  };
+
   // Handle form submission
   const handleSubmit = async () => {
     if (!validateForm()) return;
@@ -275,13 +284,32 @@ const IssueCredential: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // In a real implementation, this would send the credential to the blockchain
-      // For now, we'll simulate a success after a brief delay
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Prepare metadata from additional fields
+      const metadata: Record<string, string> = {};
+      formData.additionalFields.forEach(field => {
+        if (field.label && field.value) {
+          metadata[field.label] = field.value;
+        }
+      });
+
+      // Prepare credential data
+      const credentialData = {
+        recipientId: selectedStudent.id,
+        credentialType: formData.credentialType,
+        credentialName: formData.credentialName,
+        description: formData.description,
+        issueDate: formData.issueDate,
+        expiryDate: formData.hasExpiry ? formData.expiryDate : undefined,
+        category: getCategoryFromType(formData.credentialType),
+        metadata
+      };
+
+      // Call API to issue credential
+      await credentialService.issueCredential(credentialData);
 
       toast({
         title: "Credential Issued",
-        description: `Successfully issued ${formData.credentialName} to ${selectedStudent?.name}`,
+        description: `Successfully issued ${formData.credentialName} to ${selectedStudent.firstName} ${selectedStudent.lastName}`,
         status: "success",
         duration: 5000,
         isClosable: true,
@@ -289,11 +317,11 @@ const IssueCredential: React.FC = () => {
 
       // Navigate back to dashboard
       navigate("/dashboard");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error issuing credential:", error);
       toast({
         title: "Error",
-        description: "Failed to issue credential. Please try again.",
+        description: error.response?.data?.message || "Failed to issue credential. Please try again.",
         status: "error",
         duration: 5000,
         isClosable: true,
@@ -364,15 +392,18 @@ const IssueCredential: React.FC = () => {
                 <Icon as={FaUserGraduate} mr={2} color="blue.500" />
                 Student Information
               </Flex>
-            </Heading>
-
             <FormControl isInvalid={!!errors.student}>
               <FormLabel>Search Student</FormLabel>
-              <Input
-                placeholder="Search by name, ID, or email"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+              <InputGroup>
+                <InputLeftElement pointerEvents='none'>
+                  <Icon as={FaSearch} color="gray.300" />
+                </InputLeftElement>
+                <Input
+                  placeholder="Search by name, ID, or email"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </InputGroup>
               <FormHelperText>
                 Enter the student's name, ID, or email to find them in the
                 system.
@@ -381,57 +412,87 @@ const IssueCredential: React.FC = () => {
                 <FormErrorMessage>{errors.student}</FormErrorMessage>
               )}
             </FormControl>
+            </Heading>
 
             <Box>
-              <Text fontWeight="semibold" mb={2}>
-                {filteredStudents.length}{" "}
-                {filteredStudents.length === 1 ? "Result" : "Results"}
-              </Text>
-              <VStack spacing={3} align="stretch" maxH="300px" overflowY="auto">
-                {filteredStudents.map((student) => (
-                  <Box
-                    key={student.id}
-                    p={4}
-                    borderWidth="1px"
-                    borderRadius="md"
-                    cursor="pointer"
-                    onClick={() => handleSelectStudent(student)}
-                    bg={
-                      selectedStudent?.id === student.id ? "blue.50" : undefined
-                    }
-                    borderColor={
-                      selectedStudent?.id === student.id
-                        ? "blue.500"
-                        : borderColor
-                    }
-                    _hover={{ bg: "blue.50" }}
-                    transition="all 0.2s"
-                  >
-                    <Flex justify="space-between" align="center">
-                      <Box>
-                        <Text fontWeight="semibold">{student.name}</Text>
-                        <Text fontSize="sm" color="gray.600">
-                          ID: {student.studentId}
-                        </Text>
-                        <Text fontSize="sm" color="gray.600">
-                          {student.email}
-                        </Text>
+              <Flex justify="space-between" align="center" mb={2}>
+                <Text fontWeight="semibold">
+                  {isSearching ? (
+                    <Spinner size="sm" mr={2} />
+                  ) : (
+                    students.length
+                  )}{" "}
+                  {students.length === 1 ? "Result" : "Results"}
+                </Text>
+              </Flex>
+              
+              {searchTerm.length < 2 ? (
+                <Alert status="info" borderRadius="md">
+                  <AlertIcon />
+                  Enter at least 2 characters to search for students.
+                </Alert>
+              ) : isSearching ? (
+                <VStack spacing={3} align="stretch">
+                  {[1, 2, 3].map((_, i) => (
+                    <Flex
+                      key={i}
+                      p={4}
+                      borderWidth="1px"
+                      borderRadius="md"
+                      align="center"
+                    >
+                      <Spinner size="sm" mr={4} />
+                      <Box flex="1">
+                        <Text>Searching...</Text>
                       </Box>
-                      {selectedStudent?.id === student.id && (
-                        <Icon as={FaCheck} color="green.500" />
-                      )}
                     </Flex>
-                  </Box>
-                ))}
-
-                {filteredStudents.length === 0 && (
-                  <Alert status="info">
-                    <AlertIcon />
-                    No students found matching your search. Try a different
-                    term.
-                  </Alert>
-                )}
-              </VStack>
+                  ))}
+                </VStack>
+              ) : students.length > 0 ? (
+                <VStack spacing={3} align="stretch" maxH="300px" overflowY="auto">
+                  {students.map((student) => (
+                    <Box
+                      key={student.id}
+                      p={4}
+                      borderWidth="1px"
+                      borderRadius="md"
+                      cursor="pointer"
+                      onClick={() => handleSelectStudent(student)}
+                      bg={
+                        selectedStudent?.id === student.id ? "blue.50" : undefined
+                      }
+                      borderColor={
+                        selectedStudent?.id === student.id
+                          ? "blue.500"
+                          : borderColor
+                      }
+                      _hover={{ bg: "blue.50" }}
+                      transition="all 0.2s"
+                    >
+                      <Flex justify="space-between" align="center">
+                        <Box>
+                          <Text fontWeight="semibold">{student.firstName} {student.lastName}</Text>
+                          <Text fontSize="sm" color="gray.600">
+                            ID: {student.studentId}
+                          </Text>
+                          <Text fontSize="sm" color="gray.600">
+                            {student.email}
+                          </Text>
+                        </Box>
+                        {selectedStudent?.id === student.id && (
+                          <Icon as={FaCheck} color="green.500" />
+                        )}
+                      </Flex>
+                    </Box>
+                  ))}
+                </VStack>
+              ) : (
+                <Alert status="info">
+                  <AlertIcon />
+                  No students found matching your search. Try a different
+                  term.
+                </Alert>
+              )}
             </Box>
 
             <Flex justify="flex-end" mt={4}>
@@ -657,7 +718,7 @@ const IssueCredential: React.FC = () => {
                   <VStack align="stretch" spacing={2}>
                     <Flex justify="space-between">
                       <Text fontWeight="semibold">Name:</Text>
-                      <Text>{selectedStudent?.name}</Text>
+                      <Text>{selectedStudent?.firstName} {selectedStudent?.lastName}</Text>
                     </Flex>
                     <Flex justify="space-between">
                       <Text fontWeight="semibold">Student ID:</Text>
@@ -717,7 +778,7 @@ const IssueCredential: React.FC = () => {
               </Box>
             )}
 
-            {formData.additionalFields.length > 0 && (
+            {formData.additionalFields.some(field => field.label && field.value) && (
               <Box>
                 <Heading size="sm" mb={4}>
                   Additional Information
@@ -725,7 +786,7 @@ const IssueCredential: React.FC = () => {
                 <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
                   {formData.additionalFields.map(
                     (field, index) =>
-                      field.label && (
+                      field.label && field.value && (
                         <Flex
                           key={index}
                           justify="space-between"

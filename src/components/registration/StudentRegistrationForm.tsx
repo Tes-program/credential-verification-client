@@ -8,7 +8,6 @@ import {
   Input,
   VStack,
   FormHelperText,
-  Select,
   Divider,
   Text,
   Box,
@@ -21,11 +20,13 @@ import { useWeb3Auth } from '../../contexts/Web3Context';
 interface StudentRegistrationFormProps {
   onSubmit: (data: any) => void;
   isAuthenticated: boolean;
+  isSubmitting: boolean; // Add this prop
 }
 
 const StudentRegistrationForm: React.FC<StudentRegistrationFormProps> = ({ 
   onSubmit, 
-  isAuthenticated 
+  isAuthenticated,
+  isSubmitting,
 }) => {
   const { login, isLoading } = useWeb3Auth();
   const [formData, setFormData] = useState({
@@ -161,7 +162,8 @@ const StudentRegistrationForm: React.FC<StudentRegistrationFormProps> = ({
             type="submit"
             width="full"
             size="lg"
-            isLoading={isLoading}
+            isLoading={isLoading || isSubmitting} // Update this line
+            loadingText={isAuthenticated ? "Submitting..." : "Connecting..."}
           >
             {isAuthenticated ? 'Complete Registration' : 'Sign In to Continue'}
           </Button>

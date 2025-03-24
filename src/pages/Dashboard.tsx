@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/Dashboard.tsx
 import React, { useState, useEffect } from "react";
 import {
@@ -13,13 +14,11 @@ import {
   StatHelpText,
   Button,
   Icon,
-  Divider,
   useColorModeValue,
   Card,
   CardHeader,
   CardBody,
   CardFooter,
-  Stack,
   Badge,
   Menu,
   MenuButton,
@@ -30,14 +29,12 @@ import {
   Tab,
   Tabs,
   TabPanel,
-  Avatar,
   VStack,
   HStack,
   Skeleton,
   SkeletonCircle,
   Alert,
   AlertIcon,
-  IconButton,
 } from "@chakra-ui/react";
 import { Link as RouterLink } from "react-router-dom";
 import {
@@ -51,84 +48,87 @@ import {
   FaEllipsisV,
   FaPlus,
   FaDownload,
-  FaSearch,
-  FaCalendarAlt,
-  FaClock,
-  FaLink,
-  FaLock,
-  FaShare,
+  FaSearch
 } from "react-icons/fa";
 import { useWeb3Auth } from "../contexts/Web3Context";
-
-// Mock data for testing
-const mockInstitutionStats = {
-  issuedCredentials: 157,
-  verifications: 89,
-  pendingRequests: 2,
-};
-
-const mockStudentStats = {
-  receivedCredentials: 5,
-  sharedCredentials: 12,
-  verifications: 8,
-};
-
-const mockInstitutionCredentials = [
-  {
-    id: "cred123",
-    studentName: "John Doe",
-    credentialType: "Bachelor of Science",
-    issueDate: "2023-10-15",
-    status: "active",
-  },
-  {
-    id: "cred124",
-    studentName: "Jane Smith",
-    credentialType: "Master of Engineering",
-    issueDate: "2023-10-10",
-    status: "active",
-  },
-  {
-    id: "cred125",
-    studentName: "Robert Johnson",
-    credentialType: "PhD in Computer Science",
-    issueDate: "2023-09-28",
-    status: "active",
-  },
-];
-
-const mockStudentCredentials = [
-  {
-    id: "cred345",
-    institution: "Babcock University",
-    credentialType: "Bachelor of Science in Information Technology",
-    issueDate: "2022-06-15",
-    shared: 3,
-  },
-  {
-    id: "cred346",
-    institution: "Babcock University",
-    credentialType: "Certificate in Web Development",
-    issueDate: "2021-08-22",
-    shared: 1,
-  },
-];
+import { credentialService, institutionService } from "../services/api";
 
 const Dashboard: React.FC = () => {
   const { user, userRole, isAuthenticated } = useWeb3Auth();
   const [isLoading, setIsLoading] = useState(true);
-  const cardBg = useColorModeValue("white", "gray.700");
+  const [dashboardData, setDashboardData] = useState<any>({
+    stats: {},
+    recentCredentials: [],
+    recentActivity: []
+  });
+  const [error, setError] = useState<string | null>(null);
+  
+  // Colors
+  // const cardBg = useColorModeValue("white", "gray.700");
   const statCardBg = useColorModeValue("blue.50", "blue.900");
   const borderColor = useColorModeValue("gray.200", "gray.600");
 
-  // Simulate data loading
+  // Fetch dashboard data
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1500);
+    const fetchDashboardData = async () => {
+      if (!isAuthenticated) return;
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        // Fetch credentials with limit
+        const credentialsResponse = await credentialService.getCredentials({
+          limit: 5,
+          sortBy: 'issueDate',
+          sortOrder: 'desc'
+        });
+        
+        let stats = {};
+        
+        // Fetch role-specific data
+        if (userRole === 'institution') {
+          // Get institution stats
+          const studentsResponse = await institutionService.getStudents({
+            limit: 1, // Just to get the total count
+          });
+          
+          stats = {
+            issuedCredentials: credentialsResponse.data.pagination.total || 0,
+            verifications: credentialsResponse.data.credentials.reduce(
+              (sum: number, cred: any) => sum + (cred.verifications || 0), 0
+            ),
+            students: studentsResponse.data.pagination.total || 0,
+            pendingRequests: 0 // This would come from another endpoint in a real app
+          };
+        } else {
+          // Get student stats
+          stats = {
+            receivedCredentials: credentialsResponse.data.pagination.total || 0,
+            sharedCredentials: credentialsResponse.data.credentials.reduce(
+              (sum: number, cred: any) => sum + (cred.shared || 0), 0
+            ),
+            verifications: credentialsResponse.data.credentials.reduce(
+              (sum: number, cred: any) => sum + (cred.verifications || 0), 0
+            )
+          };
+        }
+        
+        setDashboardData({
+          stats,
+          recentCredentials: credentialsResponse.data.credentials || [],
+          recentActivity: [] // This would come from an activity endpoint in a real app
+        });
+      } catch (err) {
+        console.error("Error fetching dashboard data:", err);
+        setError("Failed to load dashboard data. Please try again later.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-    return () => clearTimeout(timer);
-  }, []);
+    fetchDashboardData();
+  }, [isAuthenticated, userRole]);
 
   // Generate welcome message based on time of day
   const getWelcomeMessage = () => {
@@ -171,6 +171,14 @@ const Dashboard: React.FC = () => {
         )}
       </Flex>
 
+      {/* Error Display */}
+      {error && (
+        <Alert status="error" mb={6} borderRadius="md">
+          <AlertIcon />
+          {error}
+        </Alert>
+      )}
+
       {/* Stats Section */}
       <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6} mb={8}>
         {isLoading ? (
@@ -201,7 +209,7 @@ const Dashboard: React.FC = () => {
                 <Box>
                   <StatLabel>Issued Credentials</StatLabel>
                   <StatNumber>
-                    {mockInstitutionStats.issuedCredentials}
+                    {dashboardData.stats.issuedCredentials || 0}
                   </StatNumber>
                   <StatHelpText>Total issued to date</StatHelpText>
                 </Box>
@@ -215,8 +223,8 @@ const Dashboard: React.FC = () => {
                 </Box>
                 <Box>
                   <StatLabel>Credential Verifications</StatLabel>
-                  <StatNumber>{mockInstitutionStats.verifications}</StatNumber>
-                  <StatHelpText>Last 30 days</StatHelpText>
+                  <StatNumber>{dashboardData.stats.verifications || 0}</StatNumber>
+                  <StatHelpText>Total verifications</StatHelpText>
                 </Box>
               </Flex>
             </Stat>
@@ -224,14 +232,14 @@ const Dashboard: React.FC = () => {
             <Stat bg={statCardBg} p={5} borderRadius="lg" boxShadow="md">
               <Flex align="center">
                 <Box p={2} bg="orange.500" borderRadius="md" mr={3}>
-                  <Icon as={FaFileAlt} color="white" boxSize={5} />
+                  <Icon as={FaUserGraduate} color="white" boxSize={5} />
                 </Box>
                 <Box>
-                  <StatLabel>Pending Requests</StatLabel>
+                  <StatLabel>Students</StatLabel>
                   <StatNumber>
-                    {mockInstitutionStats.pendingRequests}
+                    {dashboardData.stats.students || 0}
                   </StatNumber>
-                  <StatHelpText>Requires attention</StatHelpText>
+                  <StatHelpText>Enrolled students</StatHelpText>
                 </Box>
               </Flex>
             </Stat>
@@ -247,7 +255,7 @@ const Dashboard: React.FC = () => {
                 <Box>
                   <StatLabel>Your Credentials</StatLabel>
                   <StatNumber>
-                    {mockStudentStats.receivedCredentials}
+                    {dashboardData.stats.receivedCredentials || 0}
                   </StatNumber>
                   <StatHelpText>Total received</StatHelpText>
                 </Box>
@@ -261,7 +269,7 @@ const Dashboard: React.FC = () => {
                 </Box>
                 <Box>
                   <StatLabel>Shared Credentials</StatLabel>
-                  <StatNumber>{mockStudentStats.sharedCredentials}</StatNumber>
+                  <StatNumber>{dashboardData.stats.sharedCredentials || 0}</StatNumber>
                   <StatHelpText>With employers/others</StatHelpText>
                 </Box>
               </Flex>
@@ -274,7 +282,7 @@ const Dashboard: React.FC = () => {
                 </Box>
                 <Box>
                   <StatLabel>Verifications</StatLabel>
-                  <StatNumber>{mockStudentStats.verifications}</StatNumber>
+                  <StatNumber>{dashboardData.stats.verifications || 0}</StatNumber>
                   <StatHelpText>Your credentials</StatHelpText>
                 </Box>
               </Flex>
@@ -323,9 +331,9 @@ const Dashboard: React.FC = () => {
             </TabList>
             <TabPanels>
               <TabPanel p={0} pt={4}>
-                {mockInstitutionCredentials.length > 0 ? (
+                {dashboardData.recentCredentials.length > 0 ? (
                   <VStack spacing={4} align="stretch">
-                    {mockInstitutionCredentials.map((credential) => (
+                    {dashboardData.recentCredentials.map((credential: any) => (
                       <Card
                         key={credential.id}
                         direction="row"
@@ -340,16 +348,14 @@ const Dashboard: React.FC = () => {
                           >
                             <Box>
                               <Heading size="sm">
-                                {credential.studentName}
+                                {credential.recipientName}
                               </Heading>
                               <Text color="gray.500" fontSize="sm">
                                 {credential.credentialType}
                               </Text>
                               <Text fontSize="xs" mt={1}>
                                 Issued:{" "}
-                                {new Date(
-                                  credential.issueDate
-                                ).toLocaleDateString()}
+                                {new Date(credential.issueDate).toLocaleDateString()}
                               </Text>
                             </Box>
                             <HStack mt={{ base: 3, md: 0 }} spacing={2}>
@@ -365,7 +371,11 @@ const Dashboard: React.FC = () => {
                                   <Icon as={FaEllipsisV} />
                                 </MenuButton>
                                 <MenuList>
-                                  <MenuItem icon={<Icon as={FaEye} />}>
+                                  <MenuItem 
+                                    icon={<Icon as={FaEye} />}
+                                    as={RouterLink}
+                                    to={`/credentials/${credential.id}`}
+                                  >
                                     View Details
                                   </MenuItem>
                                   <MenuItem icon={<Icon as={FaFileAlt} />}>
@@ -418,9 +428,9 @@ const Dashboard: React.FC = () => {
             </TabList>
             <TabPanels>
               <TabPanel p={0} pt={4}>
-                {mockStudentCredentials.length > 0 ? (
+                {dashboardData.recentCredentials.length > 0 ? (
                   <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-                    {mockStudentCredentials.map((credential) => (
+                    {dashboardData.recentCredentials.map((credential: any) => (
                       <Card
                         key={credential.id}
                         variant="outline"
@@ -428,18 +438,24 @@ const Dashboard: React.FC = () => {
                       >
                         <CardHeader pb={2}>
                           <Flex justify="space-between" align="center">
-                            <Heading size="md">
-                              {credential.credentialType}
-                            </Heading>
+                            <Heading size="md">{credential.credentialName || credential.credentialType}</Heading>
                             <Menu>
                               <MenuButton as={Button} variant="ghost" size="sm">
                                 <Icon as={FaEllipsisV} />
                               </MenuButton>
                               <MenuList>
-                                <MenuItem icon={<Icon as={FaEye} />}>
+                                <MenuItem 
+                                  icon={<Icon as={FaEye} />}
+                                  as={RouterLink}
+                                  to={`/credentials/${credential.id}`}
+                                >
                                   View Details
                                 </MenuItem>
-                                <MenuItem icon={<Icon as={FaShareAlt} />}>
+                                <MenuItem 
+                                  icon={<Icon as={FaShareAlt} />}
+                                  as={RouterLink}
+                                  to={`/share/${credential.id}`}  
+                                >
                                   Share
                                 </MenuItem>
                                 <MenuItem icon={<Icon as={FaDownload} />}>
@@ -456,7 +472,7 @@ const Dashboard: React.FC = () => {
                                 Institution:
                               </Text>
                               <Text fontSize="sm">
-                                {credential.institution}
+                                {credential.institution || "Issuing Institution"}
                               </Text>
                             </Flex>
                             <Flex justify="space-between">
@@ -464,9 +480,7 @@ const Dashboard: React.FC = () => {
                                 Issue Date:
                               </Text>
                               <Text fontSize="sm">
-                                {new Date(
-                                  credential.issueDate
-                                ).toLocaleDateString()}
+                                {new Date(credential.issueDate).toLocaleDateString()}
                               </Text>
                             </Flex>
                             <Flex justify="space-between">
@@ -474,7 +488,7 @@ const Dashboard: React.FC = () => {
                                 Shared:
                               </Text>
                               <Text fontSize="sm">
-                                {credential.shared} times
+                                {credential.shared || 0} times
                               </Text>
                             </Flex>
                           </VStack>
@@ -500,260 +514,25 @@ const Dashboard: React.FC = () => {
                     You haven't received any credentials yet.
                   </Alert>
                 )}
-              </TabPanel>
-              <TabPanel>
-                <Box>
-                  <Flex justify="space-between" align="center" mb={4}>
-                    <Heading size="sm">Recently Shared Credentials</Heading>
+                
+                {dashboardData.recentCredentials.length > 0 && (
+                  <Flex justify="center" mt={6}>
                     <Button
-                      size="sm"
-                      colorScheme="blue"
                       variant="outline"
-                      as={RouterLink}
-                      to="/shared-history"
                       rightIcon={<Icon as={FaSearch} />}
+                      as={RouterLink}
+                      to="/credentials"
                     >
-                      View All
+                      View All Credentials
                     </Button>
                   </Flex>
-
-                  {isLoading ? (
-                    <VStack spacing={4} align="stretch">
-                      {Array(3)
-                        .fill(0)
-                        .map((_, i) => (
-                          <Skeleton key={i} height="100px" borderRadius="md" />
-                        ))}
-                    </VStack>
-                  ) : (
-                    <VStack spacing={4} align="stretch">
-                      {/* Sample shared credential items */}
-                      <Box
-                        p={4}
-                        borderWidth="1px"
-                        borderRadius="md"
-                        borderColor={borderColor}
-                      >
-                        <Flex
-                          justify="space-between"
-                          align="center"
-                          direction={{ base: "column", sm: "row" }}
-                          gap={4}
-                        >
-                          <Box>
-                            <Heading size="sm">
-                              Bachelor of Science in Information Technology
-                            </Heading>
-                            <Text fontSize="sm" color="gray.500" mt={1}>
-                              Shared with{" "}
-                              <Badge colorScheme="blue">TechCorp Inc.</Badge>{" "}
-                              via Email
-                            </Text>
-                            <HStack mt={2} spacing={4}>
-                              <Text fontSize="xs" color="gray.500">
-                                <Icon as={FaCalendarAlt} mr={1} />
-                                Shared on: 2025-02-15
-                              </Text>
-                              <Text fontSize="xs" color="gray.500">
-                                <Icon as={FaClock} mr={1} />
-                                Expires: 2025-05-15
-                              </Text>
-                            </HStack>
-                          </Box>
-                          <HStack>
-                            <Badge colorScheme="green">Active</Badge>
-                            <Menu>
-                              <MenuButton
-                                as={IconButton}
-                                icon={<FaEllipsisV />}
-                                variant="ghost"
-                                size="sm"
-                              />
-                              <MenuList>
-                                <MenuItem icon={<Icon as={FaEye} />}>
-                                  View Details
-                                </MenuItem>
-                                <MenuItem icon={<Icon as={FaLink} />}>
-                                  Copy Link
-                                </MenuItem>
-                                <MenuItem icon={<Icon as={FaCalendarAlt} />}>
-                                  Extend Expiry
-                                </MenuItem>
-                                <MenuItem
-                                  icon={<Icon as={FaLock} />}
-                                  color="red.500"
-                                >
-                                  Revoke Access
-                                </MenuItem>
-                              </MenuList>
-                            </Menu>
-                          </HStack>
-                        </Flex>
-                      </Box>
-
-                      <Box
-                        p={4}
-                        borderWidth="1px"
-                        borderRadius="md"
-                        borderColor={borderColor}
-                      >
-                        <Flex
-                          justify="space-between"
-                          align="center"
-                          direction={{ base: "column", sm: "row" }}
-                          gap={4}
-                        >
-                          <Box>
-                            <Heading size="sm">
-                              Certificate in Web Development
-                            </Heading>
-                            <Text fontSize="sm" color="gray.500" mt={1}>
-                              Shared with{" "}
-                              <Badge colorScheme="purple">
-                                john.smith@example.com
-                              </Badge>{" "}
-                              via Link
-                            </Text>
-                            <HStack mt={2} spacing={4}>
-                              <Text fontSize="xs" color="gray.500">
-                                <Icon as={FaCalendarAlt} mr={1} />
-                                Shared on: 2025-01-10
-                              </Text>
-                              <Text fontSize="xs" color="gray.500">
-                                <Icon as={FaEye} mr={1} />
-                                Viewed: 3 times
-                              </Text>
-                            </HStack>
-                          </Box>
-                          <HStack>
-                            <Badge colorScheme="green">Active</Badge>
-                            <Menu>
-                              <MenuButton
-                                as={IconButton}
-                                icon={<FaEllipsisV />}
-                                variant="ghost"
-                                size="sm"
-                              />
-                              <MenuList>
-                                <MenuItem icon={<Icon as={FaEye} />}>
-                                  View Details
-                                </MenuItem>
-                                <MenuItem icon={<Icon as={FaLink} />}>
-                                  Copy Link
-                                </MenuItem>
-                                <MenuItem icon={<Icon as={FaCalendarAlt} />}>
-                                  Add Expiry
-                                </MenuItem>
-                                <MenuItem
-                                  icon={<Icon as={FaLock} />}
-                                  color="red.500"
-                                >
-                                  Revoke Access
-                                </MenuItem>
-                              </MenuList>
-                            </Menu>
-                          </HStack>
-                        </Flex>
-                      </Box>
-
-                      <Box
-                        p={4}
-                        borderWidth="1px"
-                        borderRadius="md"
-                        borderColor={borderColor}
-                        opacity={0.7}
-                      >
-                        <Flex
-                          justify="space-between"
-                          align="center"
-                          direction={{ base: "column", sm: "row" }}
-                          gap={4}
-                        >
-                          <Box>
-                            <Heading size="sm">
-                              Bachelor of Science in Information Technology
-                            </Heading>
-                            <Text fontSize="sm" color="gray.500" mt={1}>
-                              Shared with{" "}
-                              <Badge colorScheme="blue">
-                                Global University
-                              </Badge>{" "}
-                              via Email
-                            </Text>
-                            <HStack mt={2} spacing={4}>
-                              <Text fontSize="xs" color="gray.500">
-                                <Icon as={FaCalendarAlt} mr={1} />
-                                Shared on: 2024-12-05
-                              </Text>
-                              <Text fontSize="xs" color="gray.500">
-                                <Icon as={FaClock} mr={1} />
-                                Expired: 2025-01-05
-                              </Text>
-                            </HStack>
-                          </Box>
-                          <HStack>
-                            <Badge colorScheme="red">Expired</Badge>
-                            <Menu>
-                              <MenuButton
-                                as={IconButton}
-                                icon={<FaEllipsisV />}
-                                variant="ghost"
-                                size="sm"
-                              />
-                              <MenuList>
-                                <MenuItem icon={<Icon as={FaEye} />}>
-                                  View Details
-                                </MenuItem>
-                                <MenuItem icon={<Icon as={FaCalendarAlt} />}>
-                                  Extend Expiry
-                                </MenuItem>
-                                <MenuItem icon={<Icon as={FaShare} />}>
-                                  Share Again
-                                </MenuItem>
-                              </MenuList>
-                            </Menu>
-                          </HStack>
-                        </Flex>
-                      </Box>
-                    </VStack>
-                  )}
-
-                  {/* Sharing Statistics */}
-                  <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6} mt={8}>
-                    <Card>
-                      <CardBody>
-                        <Flex direction="column" align="center">
-                          <Heading size="xl" color="blue.500" mb={2}>
-                            5
-                          </Heading>
-                          <Text textAlign="center">Active Shares</Text>
-                        </Flex>
-                      </CardBody>
-                    </Card>
-
-                    <Card>
-                      <CardBody>
-                        <Flex direction="column" align="center">
-                          <Heading size="xl" color="green.500" mb={2}>
-                            12
-                          </Heading>
-                          <Text textAlign="center">Total Views</Text>
-                        </Flex>
-                      </CardBody>
-                    </Card>
-
-                    <Card>
-                      <CardBody>
-                        <Flex direction="column" align="center">
-                          <Heading size="xl" color="purple.500" mb={2}>
-                            3
-                          </Heading>
-                          <Text textAlign="center">Verified By Others</Text>
-                        </Flex>
-                      </CardBody>
-                    </Card>
-                  </SimpleGrid>
-                </Box>
+                )}
+              </TabPanel>
+              <TabPanel>
+                <Alert status="info">
+                  <AlertIcon />
+                  Your shared credential history will appear here.
+                </Alert>
               </TabPanel>
             </TabPanels>
           </Tabs>
@@ -845,14 +624,11 @@ const Dashboard: React.FC = () => {
                 </CardBody>
               </Card>
 
-              {/* Updated card with link to first credential for sharing */}
               <Card
                 as={RouterLink}
-                to={
-                  mockStudentCredentials.length > 0
-                    ? `/share/${mockStudentCredentials[0].id}`
-                    : "/dashboard"
-                }
+                to={dashboardData.recentCredentials.length > 0 
+                  ? `/share/${dashboardData.recentCredentials[0].id}` 
+                  : "/credentials"}
                 borderRadius="lg"
                 _hover={{ transform: "translateY(-5px)", shadow: "md" }}
                 transition="all 0.3s"

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/VerifyCredential.tsx
 import React, { useState } from 'react';
 import {
@@ -24,35 +24,38 @@ import {
   Icon,
   HStack,
   useToast,
+  InputGroup,
+  InputLeftElement,
 } from '@chakra-ui/react';
-import { FaCheckCircle, FaTimesCircle, FaInfoCircle, FaUniversity, FaUser, FaScroll, FaCalendar } from 'react-icons/fa';
+import { 
+  FaCheckCircle, 
+  FaTimesCircle, 
+  FaInfoCircle, 
+  FaUniversity, 
+  FaUser, 
+  FaScroll, 
+  FaCalendar,
+  FaSearch, 
+  FaShieldAlt, 
+  FaExternalLinkAlt
+} from 'react-icons/fa';
 import { useWeb3Auth } from '../contexts/Web3Context';
-
-// Define the types for our verification state and results
-type VerificationStatus = 'idle' | 'loading' | 'success' | 'error';
-
-type VerificationResult = {
-  isValid: boolean;
-  institution: string;
-  studentName: string;
-  credentialType: string;
-  issueDate: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  additionalData?: Record<string, any>;
-};
+import { verificationService } from '../services/api';
 
 const VerifyCredential: React.FC = () => {
-  const { isAuthenticated, login, isLoading: authLoading, verificationContract, error: authError } = useWeb3Auth();
+  const { isAuthenticated } = useWeb3Auth();
   const [credentialId, setCredentialId] = useState('');
-  const [status, setStatus] = useState<VerificationStatus>('idle');
-  const [result, setResult] = useState<VerificationResult | null>(null);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [result, setResult] = useState<any | null>(null);
   const [error, setError] = useState<string>('');
+  const [verifierName, setVerifierName] = useState('');
+  const [verifierType, setVerifierType] = useState('public');
   const toast = useToast();
 
-  // Colors for different sections
+  // Colors
   const formBg = useColorModeValue('white', 'gray.700');
   const resultBg = useColorModeValue('white', 'gray.700');
-  const borderColor = useColorModeValue('gray.200', 'gray.600');
+  // const borderColor = useColorModeValue('gray.200', 'gray.600');
   const bgColor = useColorModeValue('gray.50', 'gray.900');
 
   // Handle credential verification
@@ -63,98 +66,68 @@ const VerifyCredential: React.FC = () => {
       return;
     }
 
-    // Handle authentication if not authenticated
-    if (!isAuthenticated) {
-      try {
-        await login();
-        // If we successfully authenticated but don't have the contract yet, show message
-        if (!verificationContract) {
-          toast({
-            title: "Authentication Successful",
-            description: "Please try verification again now that you're signed in.",
-            status: "success",
-            duration: 5000,
-            isClosable: true,
-          });
-          return;
-        }
-      } catch (err) {
-        setError('Failed to authenticate. Please try again.');
-        return;
-      }
-    }
-
-    // Verify the contract is available
-    if (!verificationContract) {
-      setError('Blockchain connection not initialized. Please ensure you are signed in.');
-      return;
-    }
-
-    // Start verification process
     setStatus('loading');
     setError('');
     setResult(null);
 
     try {
-      // Call the smart contract to verify the credential
-      // Note: This is a mock implementation - replace with your actual contract call
+      // Prepare verification data
+      const verificationData = {
+        credentialId,
+        verifierName: verifierName || (isAuthenticated ? 'Authenticated User' : 'Anonymous User'),
+        verifierType: verifierType || 'public'
+      };
+
+      // Call API to verify credential
+      const response = await verificationService.verifyCredential(verificationData);
       
-      // For testing, we'll use a timeout to simulate the blockchain call
-      setTimeout(async () => {
-        try {
-          // Mock verification result - in production, this would be:
-          // const verificationResult = await verificationContract.verifyCredential(credentialId);
-          
-          // Simulate successful verification for credential IDs that start with "valid"
-          if (credentialId.toLowerCase().startsWith('valid')) {
-            const mockResult = {
-              isValid: true,
-              institution: 'Babcock University',
-              studentName: 'John Doe',
-              credentialType: 'Bachelor of Science in Information Technology',
-              issueDate: new Date().toLocaleDateString(),
-              additionalData: {
-                'GPA': '3.8',
-                'Year of Graduation': '2023',
-                'Department': 'Information Technology'
-              }
-            };
-            
-            setResult(mockResult);
-            setStatus('success');
-            
-            toast({
-              title: 'Verification Successful',
-              description: 'The credential has been successfully verified.',
-              status: 'success',
-              duration: 5000,
-              isClosable: true,
-            });
-          } else {
-            // Simulate invalid credential
-            setError('Credential could not be verified or does not exist on the blockchain.');
-            setStatus('error');
-            
-            toast({
-              title: 'Verification Failed',
-              description: 'The credential could not be verified.',
-              status: 'error',
-              duration: 5000,
-              isClosable: true,
-            });
-          }
-        } catch (err) {
-          console.error('Verification error:', err);
-          setError('An error occurred during verification. Please try again.');
-          setStatus('error');
-        }
-      }, 2000); // 2-second mock delay to simulate blockchain transaction
-    } catch (err) {
+      // Check if verification was successful
+      if (response.data.verified) {
+        setResult(response.data);
+        setStatus('success');
+        
+        toast({
+          title: 'Verification Successful',
+          description: 'The credential has been successfully verified.',
+          status: 'success',
+          duration: 5000,
+          isClosable: true,
+        });
+      } else {
+        throw new Error(response.data.message || 'Verification failed');
+      }
+    } catch (err: unknown) {
       console.error('Verification error:', err);
-      setError('An error occurred while interacting with the blockchain. Please try again.');
+      
+      // Safely extract error message with type checking
+      let errorMessage = 'Credential could not be verified. Please check the ID and try again.';
+      if (err && typeof err === 'object' && 'response' in err) {
+        const errorObj = err as { response?: { data?: { message?: string } } };
+        if (errorObj.response?.data?.message) {
+          errorMessage = errorObj.response.data.message;
+        }
+      }
+      
+      setError(errorMessage);
       setStatus('error');
+      
+      toast({
+        title: 'Verification Failed',
+        description: errorMessage,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
     }
   };
+
+  // Handle verification using hash directly
+  // const handleVerifyHash = (hash: string) => {
+  //   setCredentialId(hash);
+  //   setTimeout(() => {
+  //     handleVerify();
+  //   }, 100);
+  // };
 
   return (
     <Container maxW="container.lg" py={10}>
@@ -180,34 +153,69 @@ const VerifyCredential: React.FC = () => {
           <VStack spacing={6}>
             <FormControl isRequired>
               <FormLabel>Credential ID or Hash</FormLabel>
-              <Input 
-                placeholder="Enter the unique credential identifier" 
-                value={credentialId}
-                onChange={(e) => setCredentialId(e.target.value)}
-                size="lg"
-              />
+              <InputGroup>
+                <InputLeftElement pointerEvents="none">
+                  <Icon as={FaSearch} color="gray.300" />
+                </InputLeftElement>
+                <Input 
+                  placeholder="Enter the unique credential identifier" 
+                  value={credentialId}
+                  onChange={(e) => setCredentialId(e.target.value)}
+                  size="lg"
+                />
+              </InputGroup>
               <Text fontSize="sm" color="gray.500" mt={2}>
                 This is the unique identifier provided with the academic credential.
               </Text>
             </FormControl>
+            
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <FormControl>
+                <FormLabel>Verifier Name (Optional)</FormLabel>
+                <Input 
+                  placeholder="Your name or organization" 
+                  value={verifierName}
+                  onChange={(e) => setVerifierName(e.target.value)}
+                />
+                <Text fontSize="sm" color="gray.500" mt={1}>
+                  For record-keeping purposes only
+                </Text>
+              </FormControl>
+              
+              <FormControl>
+                <FormLabel>Verifier Type</FormLabel>
+                <select 
+                  value={verifierType}
+                  onChange={(e) => setVerifierType(e.target.value)}
+                  className="chakra-input css-1kp110w"
+                  style={{ width: '100%', height: '40px', borderRadius: '0.375rem', padding: '0 1rem' }}
+                >
+                  <option value="public">Public/Individual</option>
+                  <option value="employer">Employer</option>
+                  <option value="institution">Educational Institution</option>
+                  <option value="government">Government Agency</option>
+                </select>
+              </FormControl>
+            </SimpleGrid>
             
             <Button 
               colorScheme="blue" 
               size="lg" 
               width="full"
               onClick={handleVerify}
-              isLoading={status === 'loading' || authLoading}
-              loadingText={authLoading ? "Authenticating..." : "Verifying..."}
+              isLoading={status === 'loading'}
+              loadingText="Verifying..."
+              leftIcon={<Icon as={FaShieldAlt} />}
             >
-              {isAuthenticated ? 'Verify Credential' : 'Sign in to Verify'}
+              Verify Credential
             </Button>
             
-            {(error || authError) && (
+            {error && (
               <Alert status="error" borderRadius="md">
                 <AlertIcon />
                 <Box>
                   <AlertTitle>Verification Error</AlertTitle>
-                  <AlertDescription>{error || authError}</AlertDescription>
+                  <AlertDescription>{error}</AlertDescription>
                 </Box>
               </Alert>
             )}
@@ -260,23 +268,25 @@ const VerifyCredential: React.FC = () => {
                 <Icon as={FaUniversity} boxSize={5} color="blue.500" mr={3} />
                 <Box>
                   <Text fontWeight="bold" fontSize="sm" color="gray.500">Institution</Text>
-                  <Text fontSize="md">{result.institution}</Text>
+                  <Text fontSize="md">{result.credential.institution}</Text>
                 </Box>
               </Flex>
               
-              <Flex align="center">
-                <Icon as={FaUser} boxSize={5} color="blue.500" mr={3} />
-                <Box>
-                  <Text fontWeight="bold" fontSize="sm" color="gray.500">Student Name</Text>
-                  <Text fontSize="md">{result.studentName}</Text>
-                </Box>
-              </Flex>
+              {result.credential.recipientName && (
+                <Flex align="center">
+                  <Icon as={FaUser} boxSize={5} color="blue.500" mr={3} />
+                  <Box>
+                    <Text fontWeight="bold" fontSize="sm" color="gray.500">Recipient</Text>
+                    <Text fontSize="md">{result.credential.recipientName}</Text>
+                  </Box>
+                </Flex>
+              )}
               
               <Flex align="center">
                 <Icon as={FaScroll} boxSize={5} color="blue.500" mr={3} />
                 <Box>
                   <Text fontWeight="bold" fontSize="sm" color="gray.500">Credential Type</Text>
-                  <Text fontSize="md">{result.credentialType}</Text>
+                  <Text fontSize="md">{result.credential.credentialType}</Text>
                 </Box>
               </Flex>
               
@@ -284,18 +294,18 @@ const VerifyCredential: React.FC = () => {
                 <Icon as={FaCalendar} boxSize={5} color="blue.500" mr={3} />
                 <Box>
                   <Text fontWeight="bold" fontSize="sm" color="gray.500">Issue Date</Text>
-                  <Text fontSize="md">{result.issueDate}</Text>
+                  <Text fontSize="md">{new Date(result.credential.issueDate).toLocaleDateString()}</Text>
                 </Box>
               </Flex>
             </SimpleGrid>
             
-            {/* Additional Data */}
-            {result.additionalData && Object.keys(result.additionalData).length > 0 && (
+            {/* Additional Metadata */}
+            {result.credential.metadata && Object.keys(result.credential.metadata).length > 0 && (
               <>
                 <Heading size="sm" mt={8} mb={4}>Additional Information</Heading>
                 <Divider mb={4} />
                 <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-                  {Object.entries(result.additionalData).map(([key, value]) => (
+                  {Object.entries(result.credential.metadata).map(([key, value]) => (
                     <Flex key={key} align="center">
                       <Icon as={FaInfoCircle} boxSize={5} color="blue.500" mr={3} />
                       <Box>
@@ -309,14 +319,50 @@ const VerifyCredential: React.FC = () => {
             )}
             
             {/* Blockchain verification info */}
-            <Box mt={8} p={4} bg={bgColor} borderRadius="md">
-              <HStack>
-                <Icon as={FaInfoCircle} color="blue.500" />
-                <Text fontSize="sm" color="gray.600">
-                  This credential has been cryptographically verified on the blockchain and is authentic.
-                </Text>
-              </HStack>
-            </Box>
+            {result.blockchain && (
+              <Box mt={8} p={4} bg={bgColor} borderRadius="md">
+                <Heading size="sm" mb={3}>Blockchain Verification</Heading>
+                <VStack align="stretch" spacing={2}>
+                  {result.blockchain.txHash && (
+                    <Flex justify="space-between">
+                      <Text fontWeight="semibold">Transaction Hash:</Text>
+                      <Text fontSize="sm" fontFamily="mono">
+                        {result.blockchain.txHash.substring(0, 10)}...{result.blockchain.txHash.substring(result.blockchain.txHash.length - 10)}
+                      </Text>
+                    </Flex>
+                  )}
+                  {result.blockchain.timestamp && (
+                    <Flex justify="space-between">
+                      <Text fontWeight="semibold">Blockchain Timestamp:</Text>
+                      <Text>{new Date(result.blockchain.timestamp).toLocaleString()}</Text>
+                    </Flex>
+                  )}
+                </VStack>
+                
+                <HStack mt={4}>
+                  <Icon as={FaInfoCircle} color="blue.500" />
+                  <Text fontSize="sm" color="gray.600">
+                    This credential has been cryptographically verified on the blockchain and is authentic.
+                  </Text>
+                </HStack>
+                
+                {result.blockchain.verificationUrl && (
+                  <Button 
+                    mt={4} 
+                    size="sm" 
+                    colorScheme="blue" 
+                    variant="outline"
+                    as="a" 
+                    href={result.blockchain.verificationUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    rightIcon={<Icon as={FaExternalLinkAlt} />}
+                  >
+                    View on Blockchain Explorer
+                  </Button>
+                )}
+              </Box>
+            )}
           </Box>
         )}
         
@@ -408,7 +454,7 @@ const VerifyCredential: React.FC = () => {
               >
                 3
               </Box>
-              <Text>Sign in with your preferred method when prompted.</Text>
+              <Text>Optionally, enter your name and organization for record-keeping.</Text>
             </HStack>
             <HStack>
               <Box 
